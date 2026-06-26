@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>轟 台本エディタ</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Meiryo, "Hiragino Kaku Gothic ProN", sans-serif;
+    margin: 0; background: #f5f5f4; color: #1a1a1a;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: #1f2937; color: #fff;
+    padding: 12px 18px; display: flex; flex-wrap: wrap;
+    align-items: center; gap: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  }
+  header h1 { font-size: 17px; margin: 0; margin-right: 8px; }
+  button {
+    font-family: inherit; font-size: 14px; font-weight: bold;
+    border: none; border-radius: 6px; padding: 8px 14px;
+    cursor: pointer; background: #3b82f6; color: #fff;
+  }
+  button:hover { background: #2563eb; }
+  button.save { background: #16a34a; }
+  button.save:hover { background: #15803d; }
+  button.speak { background: #7c3aed; }
+  button.speak:hover { background: #6d28d9; }
+  button.speak.active { background: #dc2626; }
+  button.speak.active:hover { background: #b91c1c; }
+  button.pause { background: #374151; }
+  button.pause:hover { background: #4b5563; }
+  button.pause.active { background: #16a34a; }
+  button.pause.active:hover { background: #15803d; }
+  button:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+  .speed-group { display: flex; gap: 4px; }
+  .speed-group button { background: #374151; padding: 8px 10px; font-size: 13px; }
+  .speed-group button:hover { background: #4b5563; }
+  .speed-group button.selected { background: #7c3aed; }
+  .line.speaking { background: #dbeafe; border-radius: 4px; }
+  .line.speaking .txt { color: #1d4ed8; font-weight: bold; }
+  .line.speaking .badge { color: #1d4ed8; }
+  .stats { margin-left: auto; display: flex; gap: 14px; font-size: 14px; }
+  .stat b { font-size: 17px; }
+  .stat.bad b { color: #fca5a5; }
+  .stat.ok b { color: #86efac; }
+  #fileName { font-size: 13px; opacity: .85; }
+  main {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; padding: 12px; height: calc(100vh - 58px);
+  }
+  .pane { background: #fff; border-radius: 8px; overflow: hidden;
+    display: flex; flex-direction: column; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .pane h2 { font-size: 13px; margin: 0; padding: 8px 12px;
+    background: #e7e5e4; color: #57534e; }
+  textarea {
+    flex: 1; border: none; resize: none; outline: none;
+    padding: 14px; font-family: Meiryo, monospace; font-size: 15px;
+    line-height: 1.9; tab-size: 2;
+  }
+  #preview { flex: 1; overflow-y: auto; padding: 14px; }
+  .line {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 15px; line-height: 1.9;
+    cursor: pointer;
+  }
+  .line:hover { background: #eef2ff; }
+  .line .txt { white-space: pre-wrap; }
+  .line .badge {
+    font-size: 11px; color: #a8a29e; min-width: 30px; text-align: right;
+    flex-shrink: 0; font-variant-numeric: tabular-nums;
+  }
+  .line.over { background: #fee2e2; border-radius: 4px; }
+  .line.over .txt { color: #b91c1c; font-weight: bold; }
+  .line.over .badge { color: #dc2626; font-weight: bold; }
+  .line.kuten { background: #fef9c3; border-radius: 4px; }
+  .blank { height: 12px; }
+  .hint { font-size: 12px; color: #78716c; padding: 0 14px 10px; }
+  button.copy { background: #0891b2; }
+  button.copy:hover { background: #0e7490; }
+  #voiceSelect {
+    font-family: inherit; font-size: 13px; padding: 7px 8px;
+    border-radius: 6px; border: none; background: #374151; color: #fff;
+    max-width: 44vw;
+  }
+
+  /* === スマホ対応（幅760px以下は縦積み・タップしやすく） === */
+  @media (max-width: 760px) {
+    header { padding: 10px 12px; gap: 8px; }
+    header h1 { font-size: 15px; width: 100%; margin: 0 0 2px; }
+    button { padding: 11px 14px; font-size: 15px; }
+    .speed-group { gap: 6px; }
+    .speed-group button { padding: 11px 12px; }
+    #fileName { width: 100%; order: 99; }
+    .stats { margin-left: 0; width: 100%; gap: 10px; justify-content: space-between; font-size: 13px; }
+    main { grid-template-columns: 1fr; height: auto; padding: 8px; gap: 8px; }
+    .pane { height: 72vh; }
+    textarea, #preview, .line, #voiceSelect { font-size: 16px; }
+    #voiceSelect { max-width: 100%; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 轟 台本エディタ</h1>
+  <button id="openBtn">台本を開く</button>
+  <button id="saveBtn" class="save">保存</button>
+  <button id="copyBtn" class="copy">全文コピー</button>
+  <button id="speakBtn" class="speak">▶ 読み上げ</button>
+  <button id="pauseBtn" class="pause" disabled>⏸ 一時停止</button>
+  <div class="speed-group">
+    <button id="speed1" data-rate="1.0">1x</button>
+    <button id="speed2" class="selected" data-rate="2.0">2x</button>
+    <button id="speed3" data-rate="3.0">3x</button>
+  </div>
+  <select id="voiceSelect" title="読み上げる声を選ぶ"></select>
+  <span id="fileName">（ファイル未選択）</span>
+  <div class="stats">
+    <span class="stat" id="charStat">総字数 <b>0</b></span>
+    <span class="stat" id="overStat">26字超過 <b>0</b></span>
+    <span class="stat" id="kutenStat">句点 <b>0</b></span>
+  </div>
+</header>
+<main>
+  <div class="pane">
+    <h2>編集（ここで打ち替える）</h2>
+    <textarea id="editor" placeholder="「台本を開く」を押して script_revised.md を選ぶか、ここに直接貼り付け"></textarea>
+  </div>
+  <div class="pane">
+    <h2>プレビュー（26字超過は赤・句点は黄）</h2>
+    <div class="hint">行をクリック／タップでそこから読み上げ・右端の数字＝文字数</div>
+    <div id="preview"></div>
+  </div>
+</main>
+<script>
+  const editor = document.getElementById('editor');
+  const preview = document.getElementById('preview');
+  const fileNameEl = document.getElementById('fileName');
+  let fileHandle = null;
+
+  function len(s) { return [...s.trim()].length; }
+
+  function render() {
+    const text = editor.value;
+    const lines = text.split('\n');
+    preview.innerHTML = '';
+    let total = 0, over = 0, kuten = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (t === '') {
+        const b = document.createElement('div');
+        b.className = 'blank';
+        preview.appendChild(b);
+        continue;
+      }
+      const n = len(t);
+      total += n;
+      const k = (t.match(/。/g) || []).length;
+      kuten += k;
+      const div = document.createElement('div');
+      div.className = 'line' + (n > 26 ? ' over' : '') + (k > 0 ? ' kuten' : '');
+      div.dataset.lineIdx = i;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = n;
+      const txt = document.createElement('span');
+      txt.className = 'txt';
+      txt.textContent = t;
+      div.appendChild(badge);
+      div.appendChild(txt);
+      preview.appendChild(div);
+      if (n > 26) over++;
+    }
+    setStat('charStat', '総字数', total, false);
+    setStat('overStat', '26字超過', over, over > 0);
+    setStat('kutenStat', '句点', kuten, kuten > 0);
+  }
+
+  function setStat(id, label, val, bad) {
+    const el = document.getElementById(id);
+    el.innerHTML = label + ' <b>' + val + '</b>';
+    el.className = 'stat ' + (bad ? 'bad' : (val >= 0 ? 'ok' : ''));
+    if (!bad) el.className = 'stat ok';
+    if (bad) el.className = 'stat bad';
+  }
+
+  editor.addEventListener('input', render);
+
+  document.getElementById('openBtn').addEventListener('click', async () => {
+    if (window.showOpenFilePicker) {
+      try {
+        const [h] = await window.showOpenFilePicker({
+          types: [{ description: 'Markdown / テキスト', accept: { 'text/*': ['.md', '.txt'] } }]
+        });
+        fileHandle = h;
+        const file = await h.getFile();
+        editor.value = await file.text();
+        fileNameEl.textContent = '📄 ' + h.name;
+        render();
+      } catch (e) { /* キャンセルは無視 */ }
+    } else {
+      // 非対応ブラウザ：input file で読み込み（保存はダウンロードになる）
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = '.md,.txt';
+      inp.onchange = async () => {
+        const f = inp.files[0];
+        if (!f) return;
+        editor.value = await f.text();
+        fileNameEl.textContent = '📄 ' + f.name + '（このブラウザは上書き保存に非対応→保存はダウンロード）';
+        render();
+      };
+      inp.click();
+    }
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    if (fileHandle) {
+      try {
+        const w = await fileHandle.createWritable();
+        await w.write(editor.value);
+        await w.close();
+        flash('💾 保存しました（' + fileHandle.name + '）');
+      } catch (e) { flash('保存に失敗：' + e.message); }
+    } else {
+      // ダウンロード保存
+      const blob = new Blob([editor.value], { type: 'text/markdown' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'script_revised.md';
+      a.click();
+      flash('💾 ダウンロードしました（元ファイルに置き換えてくれ）');
+    }
+  });
+
+  function flash(msg) {
+    fileNameEl.textContent = msg;
+  }
+
+  // 読み上げ
+  let speakRate = 2.0;
+  let speakState = 'idle'; // 'idle' | 'playing' | 'paused'
+  let speakOffset = 0;
+  let utteranceOffset = 0;
+  let lastCharIndex = 0;
+  let processedText = '';
+  let lineOffsets = [];
+  let lineElMap = {};
+  let currentUtterance = null;
+  let keepAliveTimer = null;
+
+  const speakBtn = document.getElementById('speakBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  // 読み上げる声の選択（Google日本語などネット系の声は高速再生が効きやすい）
+  let voices = [];
+  let selectedVoice = null;
+  const voiceSelect = document.getElementById('voiceSelect');
+
+  function loadVoices() {
+    const all = window.speechSynthesis.getVoices();
+    voices = all.filter(v => v.lang && (v.lang.toLowerCase().startsWith('ja') || /japan|日本/i.test(v.name)));
+    if (voices.length === 0) voices = all;
+    if (voices.length === 0) return;
+    const prevName = selectedVoice ? selectedVoice.name : null;
+    voiceSelect.innerHTML = '';
+    voices.forEach((v, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = v.name + (v.localService ? '（PC内蔵）' : '（ネット・高速向き）');
+      voiceSelect.appendChild(opt);
+    });
+    let idx = prevName ? voices.findIndex(v => v.name === prevName) : -1;
+    if (idx < 0) idx = voices.findIndex(v => v.localService); // まず確実に鳴る内蔵音声を選ぶ
+    if (idx < 0) idx = 0;
+    voiceSelect.value = idx;
+    selectedVoice = voices[idx];
+  }
+
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+
+  voiceSelect.addEventListener('change', () => {
+    selectedVoice = voices[parseInt(voiceSelect.value)] || null;
+    if (speakState === 'playing') {
+      const pos = lastCharIndex;
+      stopSpeech();
+      startSpeech(pos);
+    }
+  });
+
+  document.querySelectorAll('.speed-group button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.speed-group button').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      speakRate = parseFloat(btn.dataset.rate);
+      if (speakState === 'playing') {
+        const pos = lastCharIndex;
+        stopSpeech();
+        startSpeech(pos);
+      }
+    });
+  });
+
+  function buildLineData() {
+    const rawLines = editor.value.split('\n');
+    const procLines = rawLines.map(l => l.replace(/^#+\s*/, ''));
+    processedText = procLines.join('\n');
+    lineOffsets = [];
+    lineElMap = {};
+    let offset = 0;
+    for (let i = 0; i < procLines.length; i++) {
+      lineOffsets.push(procLines[i].trim() === '' ? null : offset);
+      offset += procLines[i].length + 1;
+    }
+    preview.querySelectorAll('.line[data-line-idx]').forEach(el => {
+      lineElMap[parseInt(el.dataset.lineIdx)] = el;
+    });
+  }
+
+  function getLineIdx(charPos) {
+    let found = -1;
+    for (let i = 0; i < lineOffsets.length; i++) {
+      if (lineOffsets[i] !== null && lineOffsets[i] <= charPos) found = i;
+    }
+    return found;
+  }
+
+  function setHighlight(lineIdx) {
+    preview.querySelectorAll('.line.speaking').forEach(el => el.classList.remove('speaking'));
+    const el = lineElMap[lineIdx];
+    if (el) {
+      el.classList.add('speaking');
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  function updateButtons() {
+    if (speakState === 'idle') {
+      speakBtn.textContent = '▶ 読み上げ';
+      speakBtn.classList.remove('active');
+      pauseBtn.textContent = '⏸ 一時停止';
+      pauseBtn.disabled = true;
+      pauseBtn.classList.remove('active');
+    } else if (speakState === 'playing') {
+      speakBtn.textContent = '■ 停止';
+      speakBtn.classList.add('active');
+      pauseBtn.textContent = '⏸ 一時停止';
+      pauseBtn.disabled = false;
+      pauseBtn.classList.remove('active');
+    } else {
+      speakBtn.textContent = '■ 停止';
+      speakBtn.classList.add('active');
+      pauseBtn.textContent = '▶ 再開';
+      pauseBtn.disabled = false;
+      pauseBtn.classList.add('active');
+    }
+  }
+
+  function stopSpeech() {
+    clearInterval(keepAliveTimer);
+    currentUtterance = null;
+    window.speechSynthesis.cancel();
+  }
+
+  function startSpeech(fromOffset) {
+    buildLineData();
+    utteranceOffset = fromOffset;
+    const text = processedText.slice(fromOffset);
+    if (!text.trim()) { speakState = 'idle'; updateButtons(); return; }
+
+    const utter = new SpeechSynthesisUtterance(text);
+    currentUtterance = utter;
+    utter.lang = 'ja-JP';
+    if (selectedVoice) utter.voice = selectedVoice;
+    utter.rate = speakRate;
+
+    utter.onboundary = e => {
+      if (utter !== currentUtterance) return;
+      lastCharIndex = utteranceOffset + e.charIndex;
+      setHighlight(getLineIdx(lastCharIndex));
+    };
+
+    utter.onend = () => {
+      if (utter !== currentUtterance) return;
+      clearInterval(keepAliveTimer);
+      speakState = 'idle';
+      speakOffset = 0;
+      preview.querySelectorAll('.line.speaking').forEach(el => el.classList.remove('speaking'));
+      updateButtons();
+    };
+
+    utter.onerror = e => {
+      if (utter !== currentUtterance || e.error === 'interrupted' || e.error === 'canceled') return;
+      clearInterval(keepAliveTimer);
+      speakState = 'idle';
+      preview.querySelectorAll('.line.speaking').forEach(el => el.classList.remove('speaking'));
+      updateButtons();
+    };
+
+    speakState = 'playing';
+    updateButtons();
+    window.speechSynthesis.speak(utter);
+
+    // Chrome長文バグ対策：10秒おきにpause/resumeでウォッチドッグをリセット
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = setInterval(() => {
+      if (speakState === 'playing' && window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      }
+    }, 10000);
+  }
+
+  speakBtn.addEventListener('click', () => {
+    if (speakState === 'idle') {
+      lastCharIndex = 0;
+      startSpeech(0);
+    } else {
+      stopSpeech();
+      speakState = 'idle';
+      speakOffset = 0;
+      lastCharIndex = 0;
+      preview.querySelectorAll('.line.speaking').forEach(el => el.classList.remove('speaking'));
+      updateButtons();
+    }
+  });
+
+  pauseBtn.addEventListener('click', () => {
+    if (speakState === 'playing') {
+      speakOffset = lastCharIndex;
+      stopSpeech();
+      speakState = 'paused';
+      updateButtons();
+    } else if (speakState === 'paused') {
+      startSpeech(speakOffset);
+    }
+  });
+
+  document.getElementById('copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(editor.value);
+      flash('📋 全文をコピーしました');
+    } catch (e) {
+      editor.select();
+      try { document.execCommand('copy'); flash('📋 コピーしました'); }
+      catch (_) { flash('コピーできませんでした'); }
+    }
+  });
+
+  // プレビューの行をクリック／タップすると、そこから読み上げを開始する
+  preview.addEventListener('click', (e) => {
+    const lineEl = e.target.closest('.line[data-line-idx]');
+    if (!lineEl) return;
+    buildLineData();
+    const offset = lineOffsets[parseInt(lineEl.dataset.lineIdx)];
+    if (offset === null || offset === undefined) return; // 空行は無視
+    stopSpeech();
+    lastCharIndex = offset;
+    speakOffset = offset;
+    startSpeech(offset);
+  });
+
+  render();
+</script>
+</body>
+</html>
